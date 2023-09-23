@@ -751,49 +751,76 @@ class SpmdTrainer(Module):
     def _create_device_mesh(self) -> np.ndarray:
         """Constructs a device mesh.
 
-        We first determine if we are running in a multislice environment or not.
-            * If not, we construct a mesh according to the configured mesh_shape.
-            * If we are, we split the first axis of the configured mesh shape across the slices.
-                The first axis is expected to be the least communication intensive.
+        We first determine whether we are running in a TPU or GPU environment.
+            - If running in a TPU environment:
+                - If multi-slice/granule, we split the first axis of the configured
+                    mesh shape across the slices.
+            - If running in a GPU environment:
+                - If the first axis divides the number of processes (GPU-nodes/granules), we
+                    split the first axis across the processes.
+
+        In all other cases we construct a standard mesh according to the configured mesh_shape.
+
+        TODO(tom_gunter): Allow for more inter/intra granule mesh config flexibility.
 
         Returns:
-            A numpy array containing the JAX devices with shape determined by config mesh_shape.
+            A numpy array containing the JAX devices with shape determined by the config mesh_shape.
         """
-        devices = np.asarray(jax.devices())
-        # Check if the devices are part of a multi-slice TPU configuration.
-        # <https://github.com/google/jax/blob/b81b79c1b0d2ec/jax/experimental/mesh_utils.py#L313>
-        is_multi_slice_tpu_env = hasattr(devices[0], "slice_index")
         cfg = self.config
-        if not is_multi_slice_tpu_env:
+        devices = np.asarray(jax.devices())
+
+        def build_standard_mesh():
+            self._step_log("Building device mesh.")
             try:
                 return mesh_utils.create_device_mesh(cfg.mesh_shape)
             except NotImplementedError as e:
                 logging.warning(
                     "mesh_utils.create_device_mesh cannot handle shape %s: %s. "
-                    "Falling back to the naive mesh.",
+                    "Falling back to the naive mesh. Performance may be reduced.",
                     cfg.mesh_shape,
                     e,
                 )
                 return devices.reshape(cfg.mesh_shape)
-        self._step_log("Building multislice device mesh.")
+
+        # Check if the devices are part of a multi-granule configuration.
+        # <https://github.com/google/jax/blob/b81b79c1b0d2ec/jax/experimental/mesh_utils.py#L313>
+        device_platform = devices[0].platform
+        attr = "process_index" if device_platform == "gpu" else "slice_index"
+        is_multi_granule_env = hasattr(devices[0], attr) and all(
+            el.platform == device_platform for el in devices
+        )
+
+        # Return standard mesh if not a multi-slice/granule env.
+        if not is_multi_granule_env:
+            return build_standard_mesh()
+
+        ici_mesh_shape = cfg.mesh_shape
+        num_granules = max([getattr(el, attr) for el in devices.flatten()]) + 1
+
+        # Return standard mesh if on GPU with incompatible multi-slice/granule mesh.
+        if device_platform == "gpu" and ici_mesh_shape[0] % num_granules != 0:
+            return build_standard_mesh()
+
         # At the moment we only break the first device axis (the least communication intensive)
         # across slices.
-        ici_mesh_shape = cfg.mesh_shape
-        max_slice_index = 0
-        for device in devices.flatten():
-            max_slice_index = max(max_slice_index, device.slice_index)
-        num_slices = max_slice_index + 1
-        assert ici_mesh_shape[0] % num_slices == 0, "First mesh shape axis must divide num slices."
-        # Truncate intra-slice mesh.
-        ici_mesh_shape = (ici_mesh_shape[0] // num_slices, *ici_mesh_shape[1:])
-        self._step_log("Inferred intra-slice mesh shape: %s", ici_mesh_shape)
-        # Configure data center (inter-slice) mesh.
-        dcn_mesh_shape = (num_slices,) + (1,) * len(ici_mesh_shape[1:])
-        self._step_log("Inferred inter-slice mesh shape: %s", dcn_mesh_shape)
+        assert (
+            ici_mesh_shape[0] % num_granules == 0
+        ), "First mesh shape axis must divide num slices/granules."
+        self._step_log("Building multi-slice/granule device mesh.")
+        # Truncate intra-slice/granule mesh.
+        ici_mesh_shape = (ici_mesh_shape[0] // num_granules, *ici_mesh_shape[1:])
+        self._step_log("Inferred intra-slice/granule mesh shape: %s", ici_mesh_shape)
+        # Configure data center (inter-slice/granule) mesh.
+        dcn_mesh_shape = (num_granules,) + (1,) * len(ici_mesh_shape[1:])
+        self._step_log("Inferred inter-slice/granule mesh shape: %s", dcn_mesh_shape)
         # Check we have the right number of devices.
         total_parallelism = np.product(dcn_mesh_shape) * np.product(ici_mesh_shape)
         assert total_parallelism == len(devices), (
             f"Num devices {len(devices)} does not match the product of "
-            f"inter and intra slice parallelism {total_parallelism}."
+            f"inter and intra slice/granule parallelism {total_parallelism}."
         )
-        return mesh_utils.create_hybrid_device_mesh(ici_mesh_shape, dcn_mesh_shape=dcn_mesh_shape)
+        return mesh_utils.create_hybrid_device_mesh(
+            ici_mesh_shape,
+            dcn_mesh_shape=dcn_mesh_shape,
+            process_is_granule=device_platform == "gpu",
+        )
