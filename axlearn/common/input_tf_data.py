@@ -415,12 +415,20 @@ def sample_from_datasets(
 
     def fn() -> tf.data.Dataset:
         # Note: repeat is called even if not training.
-        source_ds_list = [source_fn().repeat() for source_fn in source_fns]
+        source_ds_list = [source_fn().repeat().prefetch(4) for source_fn in source_fns]
         if any(source_ds.cardinality() == 0 for source_ds in source_ds_list):
             raise ValueError("Expected all cardinalities to be non-zero")
 
+        options = tf.data.Options()
+        options.deterministic = False
+        options.autotune.enabled = True
+
+        options.autotune.ram_budget = 2 * 1024 * 1024 * 1024
+        options.autotune.cpu_budget = 2
+        options.experimental_optimization.warm_start = True
+
         return tf.data.Dataset.sample_from_datasets(
-            source_ds_list,
+            [ds.with_options(options) for ds in source_ds_list],
             weights=weights,
             seed=seed,
             stop_on_empty_dataset=True,

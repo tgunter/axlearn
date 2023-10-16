@@ -25,11 +25,11 @@ dependencies = [
     "portpicker",
     "protobuf==3.20.3",  # needed to pin to 3.20.x or lower for tensorflow 2.8.0.
     "tensorboard-plugin-profile==2.8.0",  # needed to pin to 2.8.0 for tensorflow 2.8.0.
-    "tensorflow==2.8.0; platform_machine == 'x86_64'",  # needed for tfds to work
-    "tensorflow-datasets==4.7.0",
-    "tensorflow-io[tensorflow]; platform_machine == 'x86_64'",
-    "tensorflow-io-gcs-filesystem[tensorflow]; platform_machine == 'x86_64'",
-    "tensorflow_text==2.8.2",  # implied by seqio, but also used directly for text processing
+    "tensorflow==2.13.0; platform_machine == 'x86_64'",  # needed for tfds to work
+    "tensorflow-datasets==4.9.2",
+    #"tensorflow-io[tensorflow]; platform_machine == 'x86_64'",
+    #"tensorflow-io-gcs-filesystem[tensorflow]; platform_machine == 'x86_64'",
+    "tensorflow_text==2.13.0",  # implied by seqio, but also used directly for text processing
     "tensorstore>=0.1.21",  # used for supporting GDA checkpoints
     "toml",  # for config management
     "typing-extensions>=4.2.0",  # needed for typing.Protocol
@@ -49,7 +49,7 @@ apple-silicon = [
     "optax>=0.1.7",  # optimizers (0.1.0 has known bugs).
     "portpicker",
     "tensorboard-plugin-profile==2.8.0",  # needed to pin to 2.8.0 for tensorflow 2.8.0.
-    "tensorflow-datasets==4.7.0",
+    "tensorflow-datasets==4.9.2",
     "tensorstore>=0.1.21",  # used for supporting GDA checkpoints
     "typing-extensions>=4.2.0",  # needed for typing.Protocol
     "seqio@git+https://github.com/google/seqio.git@8efd5dc016bb626509bdf656e2bbcdfa8a7cf2d8",  # used for inputs
@@ -83,12 +83,12 @@ dev = [
 gcp = [
     "cloud-tpu-client",  # for creating and managing TPUs.
     "crcmod",  # for file uploads.
-    "google-api-python-client==1.8.0",
-    "google-auth==2.23.0",
+    "google-api-python-client",
+    "google-auth",
     "google-auth[pyopenssl]",  # Ensures that we have compatible pyopenssl/cryptography pins.
     "pyOpenSSL>=22.1.0",  # compat with cryptography version.
-    "google-cloud-storage==2.2.1",
-    "google-cloud-core==2.3.3",
+    "google-cloud-storage",
+    "google-cloud-core",
 ]
 # For TPU training.
 # Note: Specify -f https://storage.googleapis.com/jax-releases/libtpu_releases.html during install.
@@ -122,10 +122,10 @@ vertexai_tensorboard = [
 ]
 # Dataflow dependencies.
 dataflow = [
-    "apache-beam==2.49.0",
+    "apache-beam==2.51.0",
     "apache-beam[gcp]",
     "google-apitools",  # for beam pipeline
-    "orjson==3.8.7",  # 3.8.8 fails: https://github.com/ijl/orjson/issues/365
+    "orjson",  # 3.8.8 fails: https://github.com/ijl/orjson/issues/365
 ]
 
 [tool.flit.module]
