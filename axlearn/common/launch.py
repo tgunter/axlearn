@@ -41,6 +41,10 @@ os.environ["JAX_USE_PJRT_C_API_ON_TPU"] = "true"
 # Note: this will disable other TF_CPP info and warnnings.
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
+os.environ["TENSORSTORE_CURL_LOW_SPEED_TIME_SECONDS"] = "60"
+os.environ["TENSORSTORE_CURL_LOW_SPEED_LIMIT_BYTES"] = "256"
+os.environ["TENSORSTORE_CURL_VERBOSE"] = "1"
+
 # Import jax before tensorflow else to avoid problems such as:
 # tpu_library_init_fns.inc:98] TpuEmbeddingEngine_ExecutePartitioner not available in this library.
 import jax  # jax must be imported before tensorflow!

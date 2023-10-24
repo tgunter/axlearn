@@ -292,7 +292,7 @@ class TensorStoreStateStorage(StateStorage):
     class Config(StateStorage.Config):
         """Configures TensorStoreStateStorage."""
 
-        timeout_secs: float = 3600
+        timeout_secs: float = 600
 
     def __init__(self, cfg: Config):
         super().__init__(cfg)
@@ -645,6 +645,12 @@ class Checkpointer(Module):
         self, *, step: int, state: NestedTensor, evaler_summaries: Optional[Dict[str, Any]] = None
     ):
         """Saves `state` at the given `step` according to the configured checkpoint policy."""
+        # logging.info("Waiting until previous checkpoint finished to save")
+        # try:
+        #     self.wait_until_finished()
+        #     logging.info("Done waiting for checkpoint to finish.")
+        # except Exception:
+        #     logging.warning("Save failed, ignoring", exc_info=True)
         if not self._save_policy(step=step, evaler_summaries=(evaler_summaries or {})):
             return
         if step < 0 or step >= 10**8:
