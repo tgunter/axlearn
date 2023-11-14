@@ -291,9 +291,8 @@ class BaseDockerBundler(Bundler):
 
             build_args = {**cfg.build_args}
             if cfg.extras:
-                build_args["extras"] = cfg.extras
-            # Ensure that build args are specified strings.
-            build_args = {k: canonicalize_to_string(v) for k, v in build_args.items()}
+                # Ensure that extras are specified as a string.
+                build_args["extras"] = ",".join(canonicalize_to_list(cfg.extras))
             bundle_path = self._build_and_push(
                 dockerfile=str(temp_dockerfile_path),
                 image=self.id(tag),
