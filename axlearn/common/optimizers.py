@@ -560,6 +560,86 @@ def sgd_optimizer(
         )
 
 
+def scale_by_adam(
+    b1: float = 0.9,
+    b2: float = 0.999,
+    eps: float = 1e-8,
+    eps_root: float = 0.0,
+    mu_dtype: Optional[chex.ArrayDType] = None,
+    summary_names_to_log: Optional[Sequence[str]] = None,
+) -> PartitionedGradientTransformation:
+    """Rescale updates according to the Adam algorithm.
+
+    Like the Optax impl, but with support for logging stats to tensorboard.
+
+    References:
+     -https://github.com/google-deepmind/optax/blob/bf987e15/optax/_src/transform.py#L311C1-L361C57
+     -https://arxiv.org/abs/1412.6980
+
+    Args:
+        b1: Decay rate for the exponentially weighted average of grads.
+        b2: Decay rate for the exponentially weighted average of squared grads.
+        eps: Term added to the denominator to improve numerical stability.
+        eps_root: Term added to the denominator inside the square-root to improve
+            numerical stability when backpropagating gradients through the rescaling.
+        mu_dtype: Optional `dtype` to be used for the first order accumulator; if
+            `None` then the `dtype` is inferred from `params` and `updates`.
+        summary_names_to_log: Named variables which will be logged as summaries.
+
+
+    Returns:
+      A `PartitionedGradientTransformation` object representing.
+    """
+
+    if mu_dtype is not None:
+        mu_dtype = jax.dtypes.canonicalize_dtype(mu_dtype)
+
+    if summary_names_to_log is None:
+        summary_names_to_log = []
+
+    count_dtype = jnp.int32
+
+    def init_fn(params):
+        # First moment.
+        mu = jax.tree_util.tree_map(lambda t: jnp.zeros_like(t, dtype=mu_dtype), params)
+        # Second moment.
+        nu = jax.tree_util.tree_map(jnp.zeros_like, params)
+        return optax.ScaleByAdamState(count=jnp.zeros([], count_dtype), mu=mu, nu=nu)
+
+    def update_fn(updates, state, params=None):
+        del params
+        mu = optax.update_moment(updates, state.mu, b1, 1)
+        nu = optax.update_moment_per_elem_norm(updates, state.nu, b2, 2)
+        count_inc = numerics.safe_int32_increment(state.count)
+        mu_hat = optax.bias_correction(mu, b1, count_inc)
+        nu_hat = optax.bias_correction(nu, b2, count_inc)
+        updates = jax.tree_util.tree_map(
+            lambda m, v: m / (jnp.sqrt(v + eps_root) + eps), mu_hat, nu_hat
+        )
+        if mu_dtype is not None:
+            mu = jax.tree_util.tree_map(lambda t: t.astype(mu_dtype), mu)
+        context = current_context()
+        if context is not None:
+            if "nu_trace" in summary_names_to_log:
+                nu_trace = jax.tree_util.tree_reduce(
+                    lambda x, y: x + jnp.sum(y), nu, initializer=0.0
+                )
+                context.add_summary("adam/nu_trace", nu_trace)
+            if "mu_norm" in summary_names_to_log:
+                context.add_summary("adam/mu_norm", optax.global_norm(mu))
+
+        return updates, optax.ScaleByAdamState(count=count_inc, mu=mu, nu=nu)
+
+    def partition_fn(param_specs: NestedParameterSpec) -> NestedPartitionSpec:
+        return optax.ScaleByAdamState(
+            count=OptStateSpec(dtype=count_dtype, shape=(), mesh_axes=PartitionSpec()),
+            mu=copy_partition(param_specs),
+            nu=copy_partition(param_specs),
+        )
+
+    return PartitionedGradientTransformation(init=init_fn, update=update_fn, partition=partition_fn)
+
+
 def adamw_optimizer(
     learning_rate: schedule.Schedule,
     *,
@@ -570,6 +650,7 @@ def adamw_optimizer(
     weight_decay_per_param_scale: Optional[Callable[[NestedOptParam], Any]] = None,
     mu_dtype: Optional[jnp.dtype] = None,
     multiply_by_parameter_scale: bool = False,
+    summary_names_to_log: Optional[Sequence[str]] = ["nu_trace", "mu_norm"],
 ) -> PartitionedGradientTransformation:
     """AdamW optimizer with parameter scaling.
 
@@ -589,11 +670,16 @@ def adamw_optimizer(
         multiply_by_parameter_scale: if `True`, then scale learning_rate by
             parameter RMS. if `False`, provided learning_rate is absolute step size.
             Usually this should be left as False.
+        summary_names_to_log: Named variables which will be logged as summaries.
 
     Returns:
         A PartitionedGradientTransformation representing an AdamW optimizer with parameter scalin.
     """
-    tx = [adam_partition(optax.scale_by_adam(b1=b1, b2=b2, eps=eps, mu_dtype=mu_dtype))]
+    tx = [
+        scale_by_adam(
+            b1=b1, b2=b2, eps=eps, mu_dtype=mu_dtype, summary_names_to_log=summary_names_to_log
+        )
+    ]
     # Add the per-parameter scaling (PPS) according to the adafactor optimizer.
     if multiply_by_parameter_scale:
         tx.append(scale_by_param_block_rms())
