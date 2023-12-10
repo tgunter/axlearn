@@ -51,6 +51,8 @@ def flash_attention(
     # Apply the softmax scale outside the kernel (see docstring for why).
     if softmax_scale != 1.0:
         query *= softmax_scale
+    if bias is not None and bias.shape[1] == 1:
+        bias = jnp.repeat(bias, query.shape[2], axis=1)
     # Switch num_heads and seq_len axes.
     query = jnp.einsum("btnh->bnth", query)
     key = jnp.einsum("bsnh->bnsh", key)

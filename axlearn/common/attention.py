@@ -508,6 +508,13 @@ class MultiheadOutputLinear(BaseMultiheadLinear):
             mesh_axes=cfg.param_partition_spec[:1],
         )
 
+    def forward(self, inputs: Tensor) -> Tensor:
+        params = self.parameters
+        outputs = jnp.einsum(self._einsum_expr, inputs, params["weight"])
+        if "bias" in params:
+            outputs = outputs + params["bias"]
+        return outputs
+
     # pylint: disable-next=no-self-use
     def _compute_fan_axes(self, name: str, parameter_spec: ParameterSpec) -> Optional[FanAxes]:
         if name == "weight":
@@ -2365,9 +2372,11 @@ class TransformerFeedForwardLayer(BaseLayer):
         remat_pt2 = "linear2"
         if cfg.structure == "prenorm":
             x = self.norm(inputs)
+            jax.debug.inspect_array_sharding(x, callback=lambda y: print(f"linear_1_input: {y}"))
             x = self._linear1_activation(x)
             x = self._remat_name(x, remat_pt1)
             x = self.dropout1(x)
+            jax.debug.inspect_array_sharding(x, callback=lambda y: print(f"linear_2_input: {y}"))
             x = self.linear2(x)
             x = self._remat_name(x, remat_pt2)
             x = self.dropout2(x)
@@ -2774,8 +2783,16 @@ def set_double_shard_weights_config(
         input_linear_cfg = attn_layer.input_linear
         if hasattr(input_linear_cfg, "input_linear"):
             input_linear_cfg = input_linear_cfg.input_linear
-        input_linear_cfg.layer.param_partition_spec = (fsdp_axis_names, tp_axis_names, None)
-        attn_layer.output_linear.param_partition_spec = (fsdp_axis_names, tp_axis_names, None)
+        input_linear_cfg.layer.param_partition_spec = (
+            fsdp_axis_names,
+            tp_axis_names,
+            None,
+        )
+        attn_layer.output_linear.param_partition_spec = (
+            fsdp_axis_names,
+            tp_axis_names,
+            None,
+        )
 
     def set_ffn_partition_specs(ff_layer: TransformerFeedForwardLayer.Config):
         # Shard weights.
@@ -3369,6 +3386,7 @@ def build_remat_spec(
     if stack_cfg.klass is PipelinedTransformerLayer:
         return None
     attention_name = stack_cfg.layer.self_attention.attention.klass.__name__
+    mlp_name = stack_cfg.layer.feed_forward.klass.__name__
     return RematSpec(
         prevent_cse=stack_cfg.klass is StackedTransformerLayer,
         # If we are running inside a jax.lax.scan (Repeated/Pipelined transformers
@@ -3378,6 +3396,7 @@ def build_remat_spec(
                 f"{attention_name}.{el}"
                 for el in ["q_proj", "k_proj", "v_proj", "context", "o_proj"]
             ]
+            + [f"{mlp_name}.{el}" for el in ["activation", "linear2"]]
         ),
     )
 

@@ -361,6 +361,12 @@ class SpmdTrainer(Module):
                     logging.log_first_n(
                         logging.INFO, "input_batch=%s", 3, utils.shapes(input_batch)
                     )
+                    # logging.log_first_n(
+                    #     logging.INFO,
+                    #     "physical_to_logical=%s",
+                    #     3,
+                    #     input_batch["__physical_to_logical_batch_dispatch"],
+                    # )
 
                     # Stop or start tracing if necessary.
                     stop_trace_step = self._maybe_stop_or_start_tracing(stop_trace_step, output)

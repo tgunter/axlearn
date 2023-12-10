@@ -5,6 +5,7 @@ import math
 import re
 from typing import Callable, Dict, Optional, Tuple, Union
 
+import jax
 from absl import logging
 from jax import numpy as jnp
 from jax.experimental.maps import thread_resources
@@ -114,6 +115,9 @@ class Model(BaseModel):
                 per_label_loss: a float Tensor of shape [batch_size, seq_len].
         """
         self._constrain_input_batch(input_batch)
+        jax.debug.inspect_array_sharding(
+            input_batch["input_ids"], callback=lambda x: print(f"input_ids: {x}")
+        )
         predictions = self.predict(input_batch)
         aux_outputs = {**predictions}
         # [batch source_length, vocab_size]
@@ -322,9 +326,9 @@ class Model(BaseModel):
 
     def _constrain_input_batch(self, input_batch: NestedTensor):
         """Applies sharding constraints in-place for relevant named tensors in the input batch."""
-        mesh = thread_resources.env.physical_mesh  # type: ignore
-        if mesh.empty or mesh.size == 1:
-            return
+        # mesh = thread_resources.env.physical_mesh  # type: ignore
+        # if mesh.empty or mesh.size == 1:
+        #     return
 
         cfg = self.config
         for k, v in input_batch.items():
