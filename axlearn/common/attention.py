@@ -3369,6 +3369,7 @@ def build_remat_spec(
     if stack_cfg.klass is PipelinedTransformerLayer:
         return None
     attention_name = stack_cfg.layer.self_attention.attention.klass.__name__
+    ffn_name = stack_cfg.layer.feed_forward.klass.__name__
     return RematSpec(
         prevent_cse=stack_cfg.klass is StackedTransformerLayer,
         # If we are running inside a jax.lax.scan (Repeated/Pipelined transformers
@@ -3378,6 +3379,7 @@ def build_remat_spec(
                 f"{attention_name}.{el}"
                 for el in ["q_proj", "k_proj", "v_proj", "context", "o_proj"]
             ]
+            + [f"{ffn_name}.{el}" for el in ["activation", "linear2"]]
         ),
     )
 

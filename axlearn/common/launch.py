@@ -18,6 +18,7 @@ if instance_type.startswith("v4-"):
         # Per maggioni@google.com, the following flags are not supported by V3.
         "--xla_enable_async_all_gather=true",  # Allow async all-gather.
         "--xla_enable_async_collective_permute=true",  # Allow async collective permute.
+        "--xla_max_concurrent_async_all_gathers=2",
     ]
 
 num_tpu_slices = int(os.environ.get("NUM_TPU_SLICES", 1))
