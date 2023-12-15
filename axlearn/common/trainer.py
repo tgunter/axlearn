@@ -65,6 +65,57 @@ class _TrainerState(NamedTuple):
     learner: Union[NestedTensor, NestedPartitionSpec]
 
 
+def get_metadata(key):
+    import os
+    import time
+
+    import requests
+
+    # Based on https://github.com/tensorflow/tensorflow/pull/40317
+    gce_metadata_endpoint = "http://" + os.environ.get(
+        "GCE_METADATA_IP", "metadata.google.internal"
+    )
+
+    retry_count = 0
+    retrySeconds = 0.500
+    api_resp = None
+
+    while retry_count < 6:
+        api_resp = requests.get(
+            f"{gce_metadata_endpoint}/computeMetadata/v1/instance/attributes/{key}",
+            headers={"Metadata-Flavor": "Google"},
+        )
+        if api_resp.status_code == 200:
+            break
+        retry_count += 1
+        time.sleep(retrySeconds)
+
+    if api_resp is None:
+        raise RuntimeError(f"Getting metadata['{key}'] failed for 6 tries")
+    return api_resp.text
+
+
+def get_in_slice_id():
+    # Returns an ID that is unique only within slice
+    return int(get_metadata("agent-worker-number"))
+
+
+def is_profiling_host():
+    # Only profile on a specific set of hosts correpsonding to certain megascale device numbers.
+    megascale_device_numbers = [
+        0,
+        20,
+        40,
+    ]  # Choose three device IDs for three different hosts per slice.
+    for d in jax.local_devices():
+        # On single slice the devices have IDs 0, 1...
+        # On multislice the devices have IDs 100000 * (num_slice + 1) + in_slice_id
+        # Each host has 4 devices with nearby IDs - though not necessarily consecutive
+        if d.id % 100000 in megascale_device_numbers:
+            return True
+    return False
+
+
 # pylint: disable-next=too-many-instance-attributes
 class SpmdTrainer(Module):
     """A trainer implementation that supports partitioning of computation and data with GSPMD."""
@@ -879,10 +930,11 @@ class SpmdTrainer(Module):
             )
             should_start_tracing = False
         else:
-            should_start_tracing = (
-                cfg.start_trace_process_indices == "all"
-                or jax.process_index() in cfg.start_trace_process_indices
-            )
+            should_start_tracing = is_profiling_host()
+            # should_start_tracing = (
+            #     cfg.start_trace_process_indices == "all"
+            #     or jax.process_index() == cfg.start_trace_process_indices
+            # )
         if should_start_tracing:
             self._step_log("Start profiler tracing")
             jax.profiler.start_trace(self.summary_writer.config.dir)
