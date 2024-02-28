@@ -434,9 +434,9 @@ class SpmdTrainer(Module):
                     self.vlog(3, "Start step %s", self.step)
                     output = self._run_step(
                         utils.host_to_global_device_array(input_batch),
-                        force_run_evals=force_run_eval_sets_at_max_step
-                        if self.step >= cfg.max_step
-                        else None,
+                        force_run_evals=(
+                            force_run_eval_sets_at_max_step if self.step >= cfg.max_step else None
+                        ),
                     )
                     self.vlog(3, "Done step %s", self.step)
                     num_steps += 1
@@ -771,7 +771,7 @@ class SpmdTrainer(Module):
             # pjit currently requires all parameters to be specified as positional args.
             self._trainer_state, outputs = self._jit_train_step(self._trainer_state, input_batch)
 
-        if self.step % 100 == 0 or 0 <= self.step <= 5:
+        if self.step % 100 == 0 or 0 <= self.step <= 5000000:
             self._step_log(
                 "loss=%s aux=%s",
                 outputs["loss"],
