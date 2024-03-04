@@ -1036,7 +1036,7 @@ def _rotary_sinusoidal_positional_embeddings(
     if dim % 2 != 0:
         raise ValueError(f"dim: {dim} should be a multiplier of 2.")
     exponents = jnp.arange(dim).astype(jnp.float32)
-    pos_array = positions.astype(jnp.float32)
+    pos_array = positions.astype(jnp.float32) / 10.0
     exponents = jnp.power(theta, 2 * (exponents // 2) / dim)
     position_enc = jnp.expand_dims(pos_array, 2) / jnp.expand_dims(exponents, [0, 1])
 
@@ -3006,9 +3006,9 @@ class StackedTransformerLayer(BaseStackedTransformerLayer):
 
         # If `layer` is a Config, it will be stacked cfg.num_layers times. If `layer` is a
         # sequence of Configs, the sequence length should match cfg.num_layers.
-        layer: Union[
-            BaseTransformerLayer.Config, Sequence[BaseTransformerLayer.Config]
-        ] = TransformerLayer.default_config()
+        layer: Union[BaseTransformerLayer.Config, Sequence[BaseTransformerLayer.Config]] = (
+            TransformerLayer.default_config()
+        )
 
     def __init__(self, cfg: Config, *, parent: Optional[Module]):
         super().__init__(cfg, parent=parent)
