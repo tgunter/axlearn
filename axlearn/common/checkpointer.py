@@ -403,7 +403,7 @@ class TensorStoreStateStorage(StateStorage):
         *,
         ckpt_dir: str,
         validation: CheckpointValidationType = CheckpointValidationType.EXACT,
-        concurrent_gb: int = 32,
+        concurrent_gb: int = 64,
     ) -> NestedTensor:
         spec = self._get_spec(step, state, ckpt_dir)
         logging.info("Restoring checkpoint from directory %s", ckpt_dir)

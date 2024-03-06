@@ -1036,7 +1036,7 @@ def _rotary_sinusoidal_positional_embeddings(
     if dim % 2 != 0:
         raise ValueError(f"dim: {dim} should be a multiplier of 2.")
     exponents = jnp.arange(dim).astype(jnp.float32)
-    pos_array = positions.astype(jnp.float32) / 10.0
+    pos_array = positions.astype(jnp.float32)
     exponents = jnp.power(theta, 2 * (exponents // 2) / dim)
     position_enc = jnp.expand_dims(pos_array, 2) / jnp.expand_dims(exponents, [0, 1])
 
