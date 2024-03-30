@@ -37,6 +37,12 @@ flags.DEFINE_integer(
     "Used for initializing model parameters and pseudo-random number generation during training.",
 )
 flags.DEFINE_list("trace_at_steps", [], "Step numbers to start a 3-step profile at.")
+flags.DEFINE_integer("skip_inputs_at_step", None, "Step to skip input iter at.")
+flags.DEFINE_integer(
+    "num_input_iters_to_skip",
+    1,
+    "If skip_inputs_at_step is set, number of input iters to skip for.",
+)
 flags.DEFINE_list(
     "eval_trace_at_iters",
     [],
@@ -94,6 +100,8 @@ def get_trainer_config(
     trainer_config.mesh_shape = trainer_config.mesh_shape or (len(jax.devices()), 1)
     trainer_config.mesh_shape = infer_mesh_shape(trainer_config.mesh_shape)
     trainer_config.start_trace_steps = [int(el) for el in flag_values.trace_at_steps]
+    trainer_config.skip_inputs_at_step = flag_values.skip_inputs_at_step
+    trainer_config.num_input_iters_to_skip = flag_values.num_input_iters_to_skip
     if trainer_config.watchdog_timeout_seconds is None:
         trainer_config.watchdog_timeout_seconds = flag_values.trainer_watchdog_timeout_seconds
 
