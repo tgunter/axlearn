@@ -152,6 +152,11 @@ class SpmdTrainer(Module):
         # increment within this interval.
         watchdog_timeout_seconds: Optional[float] = None
 
+        # Skip inputs for this step.
+        skip_inputs_at_step: Optional[int] = None
+        # Skip this many input iters at the specified trainer step.
+        num_input_iters_to_skip: int = 1
+
     def __init__(
         self,
         cfg: Config,
@@ -421,11 +426,18 @@ class SpmdTrainer(Module):
                 num_steps = 0
                 output = None
                 stop_trace_step = None
+                num_input_iters_to_skip = cfg.num_input_iters_to_skip
 
                 for input_batch in self._input_iter:
                     logging.log_first_n(
                         logging.INFO, "input_batch=%s", 3, utils.shapes(input_batch)
                     )
+
+                    # Maybe skip input iters:
+                    if cfg.skip_inputs_at_step == self._step and num_input_iters_to_skip:
+                        self._step_log("Skipping input iter!")
+                        num_input_iters_to_skip -= 1
+                        continue
 
                     # Stop or start tracing if necessary.
                     stop_trace_step = self._maybe_stop_or_start_tracing(stop_trace_step, output)
@@ -434,9 +446,9 @@ class SpmdTrainer(Module):
                     self.vlog(3, "Start step %s", self.step)
                     output = self._run_step(
                         utils.host_to_global_device_array(input_batch),
-                        force_run_evals=force_run_eval_sets_at_max_step
-                        if self.step >= cfg.max_step
-                        else None,
+                        force_run_evals=(
+                            force_run_eval_sets_at_max_step if self.step >= cfg.max_step else None
+                        ),
                     )
                     self.vlog(3, "Done step %s", self.step)
                     num_steps += 1

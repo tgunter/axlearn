@@ -37,6 +37,12 @@ flags.DEFINE_integer(
     "Used for initializing model parameters and pseudo-random number generation during training.",
 )
 flags.DEFINE_list("trace_at_steps", [], "Step numbers to start a 3-step profile at.")
+flags.DEFINE_int("skip_inputs_at_step", None, "Step to skip input iter at.")
+flags.DEFINE_int(
+    "num_input_iters_to_skip",
+    1,
+    "If skip_inputs_at_step is set, number of input iters to skip for.",
+)
 flags.DEFINE_list(
     "eval_trace_at_iters",
     [],
