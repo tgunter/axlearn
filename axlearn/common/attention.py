@@ -2383,7 +2383,7 @@ class TransformerFeedForwardLayer(BaseLayer):
             # Create a linear1 projection for each activation.
             self._add_child(
                 "linear1_0",
-                cfg.linear1.set(input_dim=cfg.input_dim, output_dim=128),
+                cfg.linear1.set(input_dim=cfg.input_dim, output_dim=512),
             )
             self._add_child(
                 "linear1_1",
