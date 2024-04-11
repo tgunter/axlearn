@@ -2488,7 +2488,7 @@ class TransformerFeedForwardLayer(BaseLayer):
             ]
             assert len(activations) == 2, cfg.activation
             hidden_dim = cfg.hidden_dim.set(input_dim=cfg.input_dim).instantiate()
-            return jnp.tile(activations[0], (1, 1, hidden_dim // 128)) * activations[1]
+            return jnp.tile(activations[0], (1, 1, hidden_dim // 512)) * activations[1]
         else:
             x = self.linear1(x)
             return self._get_activation(x, activation_fn_name=cfg.activation)
@@ -3010,9 +3010,9 @@ class StackedTransformerLayer(BaseStackedTransformerLayer):
 
         # If `layer` is a Config, it will be stacked cfg.num_layers times. If `layer` is a
         # sequence of Configs, the sequence length should match cfg.num_layers.
-        layer: Union[
-            BaseTransformerLayer.Config, Sequence[BaseTransformerLayer.Config]
-        ] = TransformerLayer.default_config()
+        layer: Union[BaseTransformerLayer.Config, Sequence[BaseTransformerLayer.Config]] = (
+            TransformerLayer.default_config()
+        )
 
     def __init__(self, cfg: Config, *, parent: Optional[Module]):
         super().__init__(cfg, parent=parent)
