@@ -2383,7 +2383,7 @@ class TransformerFeedForwardLayer(BaseLayer):
             # Create a linear1 projection for each activation.
             self._add_child(
                 "linear1_0",
-                cfg.linear1.set(input_dim=cfg.input_dim, output_dim=512),
+                cfg.linear1.set(input_dim=cfg.input_dim, output_dim=128),
             )
             self._add_child(
                 "linear1_1",
@@ -2488,7 +2488,7 @@ class TransformerFeedForwardLayer(BaseLayer):
             ]
             assert len(activations) == 2, cfg.activation
             hidden_dim = cfg.hidden_dim.set(input_dim=cfg.input_dim).instantiate()
-            return jnp.tile(activations[0], (1, 1, hidden_dim // 512)) * activations[1]
+            return jnp.tile(activations[0], (1, 1, hidden_dim // 128)) * activations[1]
         else:
             x = self.linear1(x)
             return self._get_activation(x, activation_fn_name=cfg.activation)

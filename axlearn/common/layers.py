@@ -50,6 +50,17 @@ from axlearn.common.utils import (
 )
 
 
+def _apply_softmax(x):
+    ldtype = x.dtype
+    if ldtype in (jnp.bfloat16, jnp.float16):
+        # Avoid computing softmax in 16-bit floats.
+        x = x.astype(jnp.float32)
+    probs = jax.nn.softmax(x, axis=-1)
+    if probs.dtype != ldtype:
+        probs = probs.astype(x)
+    return probs
+
+
 def get_activation_fn(name) -> Callable[[Tensor], Tensor]:
     if name == "linear":
         return lambda x: x
@@ -68,6 +79,10 @@ def get_activation_fn(name) -> Callable[[Tensor], Tensor]:
         return getattr(nn, name[3:])
     elif name.startswith("jnp."):
         return getattr(jnp, name[4:])
+    elif name == "soft_glu1":
+        return lambda x: x * _apply_softmax(x)
+    elif name == "soft_glu2":
+        return lambda x: _apply_softmax(x)
     else:
         raise NotImplementedError(f"Unsupported activation function {name}")
 
