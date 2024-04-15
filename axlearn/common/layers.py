@@ -57,7 +57,7 @@ def _apply_softmax(x):
         x = x.astype(jnp.float32)
     probs = jax.nn.softmax(x, axis=-1)
     if probs.dtype != ldtype:
-        probs = probs.astype(x)
+        probs = probs.astype(ldtype)
     return probs
 
 
