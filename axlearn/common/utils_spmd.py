@@ -101,9 +101,12 @@ def setup(
                     jax.distributed.initialize(**init_kwargs)
                     _jax_distributed_initialized = True
                 except RuntimeError as e:
-                    for msg in ["Failed to recognize coordinator", "Barrier timed out"]:
-                        if msg in str(e):
-                            continue  # Retry. Sleep is handled by jax.distributed.initialze.
+                    err_str = str(e)
+                    if (
+                        "Failed to recognize coordinator" in err_str
+                        or "Barrier timed out" in err_str
+                    ):
+                        continue  # Retry. Sleep is handled by jax.distributed.initialze.
                     raise
             if not _jax_distributed_initialized:
                 raise RuntimeError(
