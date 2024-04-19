@@ -88,7 +88,6 @@ def setup(
                 num_processes=num_processes,
                 process_id=process_id,
             )
-
         # Ensure that coordinator initialization respects initialization_timeout.
         # The current jax version hardcodes the number of attempts to discover coordinator address:
         # https://github.com/google/jax/blob/33e1a96204bf88f76b9f8d982cb2fe92ebcf0151/jax/_src/clusters/cloud_tpu_cluster.py#L110-L125
