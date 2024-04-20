@@ -274,6 +274,8 @@ class LayerNormStateless(BaseNormalizationLayer):
 
     def forward(self, x: Tensor, *, paddings: Optional[Tensor] = None) -> Tensor:
         del paddings  # paddings do not affect LayerNorm results
+        self.add_summary("input_mean", x.mean())
+        self.add_summary("input_std", x.std())
         cfg = self.config
         x_dtype = x.dtype
         if cfg.forward_dtype is not None:
@@ -320,6 +322,8 @@ class RMSNorm(BaseNormalizationLayer):
 
     def forward(self, x: Tensor, *, paddings: Optional[Tensor] = None) -> Tensor:
         del paddings  # paddings do not affect LayerNorm results
+        self.add_summary("input_mean", x.mean())
+        self.add_summary("input_std", x.std())
         cfg = self.config
         x_dtype = x.dtype
         if cfg.forward_dtype is not None:
