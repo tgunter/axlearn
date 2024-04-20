@@ -274,15 +274,15 @@ class LayerNormStateless(BaseNormalizationLayer):
 
     def forward(self, x: Tensor, *, paddings: Optional[Tensor] = None) -> Tensor:
         del paddings  # paddings do not affect LayerNorm results
-        self.add_summary("input_mean", x.mean())
-        self.add_summary("input_std", x.std())
         cfg = self.config
         x_dtype = x.dtype
         if cfg.forward_dtype is not None:
             x = x.astype(cfg.forward_dtype)
         x_mean = x.mean(axis=-1, keepdims=True)
+        self.add_summary("input_mean", x_mean.mean())
         x -= x_mean
         variance = (x * x).mean(axis=-1, keepdims=True)
+        self.add_summary("input_std", jnp.sqrt(variance))
         x = x * jax.lax.rsqrt(variance + cfg.eps)
         x = x.astype(x_dtype)
         return x
