@@ -282,7 +282,7 @@ class LayerNormStateless(BaseNormalizationLayer):
         self.add_summary("input_mean", x_mean.mean())
         x -= x_mean
         variance = (x * x).mean(axis=-1, keepdims=True)
-        self.add_summary("input_std", jnp.sqrt(variance))
+        self.add_summary("input_std", jnp.sqrt(variance.mean()))
         x = x * jax.lax.rsqrt(variance + cfg.eps)
         x = x.astype(x_dtype)
         return x
