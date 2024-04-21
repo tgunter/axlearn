@@ -313,6 +313,8 @@ class RMSNorm(BaseNormalizationLayer):
         eps: float = 1e-8
         # Cast input to this dtype for the 'forward' call. If None, do not cast.
         forward_dtype: Optional[jnp.dtype] = jnp.float32
+        # Clipping range for outputs before applying scale. If None, do not clip.
+        clip: Optional[Tuple[float, float]] = None
 
     def _create_layer_parameter_specs(self) -> Dict[str, ParameterSpec]:
         cfg = self.config
@@ -331,6 +333,8 @@ class RMSNorm(BaseNormalizationLayer):
         self.add_summary("input_rms-min", moment2.min())
         x = x * jax.lax.rsqrt(moment2 + cfg.eps)
         x = x.astype(x_dtype)
+        if cfg.clip:
+            x = jnp.clip(x, *cfg.clip)
         x = x * self.parameters["scale"]
         return x
 
