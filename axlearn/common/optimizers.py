@@ -1923,7 +1923,7 @@ def adastar_optimizer(
         # Log large entries
         def log_large(name, updates):
             should_clip = vectorized_tree_map(
-                lambda x: WeightedScalar(mean=jnp.sum((x > 1) | (x < -1)), weight=x.size), updates
+                lambda x: WeightedScalar(mean=jnp.mean((x > 1) | (x < -1)), weight=x.size), updates
             )
             summarize_tree(name, should_clip, kinds=["cmax", "cmean"])
 
