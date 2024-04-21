@@ -36,6 +36,7 @@ from axlearn.common import schedule, struct
 from axlearn.common.base_layer import NestedParameterSpec, ParameterSpec, PartitionSpec
 from axlearn.common.config import ConfigOr, maybe_instantiate
 from axlearn.common.factorized_rms import scale_by_factored_rms
+from axlearn.common.metrics import WeightedScalar
 from axlearn.common.module import current_context
 from axlearn.common.optimizer_base import (
     NestedOptParam,
@@ -1683,6 +1684,33 @@ def lion_optimizer(
     return chain(*tx)
 
 
+def summarize_tree(name: str, tree: Nested[WeightedScalar], *, kinds: Sequence[str]):
+    summarizers = dict(
+        cmax=lambda: current_context().add_summary(
+            name + "-cmax",
+            jax.tree_util.tree_map(
+                lambda x: x.mean.max(), tree, is_leaf=lambda x: isinstance(x, WeightedScalar)
+            ),
+        ),
+        cmin=lambda: current_context().add_summary(
+            name + "-cmin",
+            jax.tree_util.tree_map(
+                lambda x: x.mean.min(), tree, is_leaf=lambda x: isinstance(x, WeightedScalar)
+            ),
+        ),
+        cmean=lambda: current_context().add_summary(
+            name + "-cmean",
+            jax.tree_util.tree_map(
+                lambda x: jnp.sum(x.mean * x.weight) / jnp.sum(x.weight),
+                tree,
+                is_leaf=lambda x: isinstance(x, WeightedScalar),
+            ),
+        ),
+    )
+    for kind in kinds:
+        summarizers[kind]()
+
+
 def adastar_optimizer(
     learning_rate: float,
     *,
@@ -1891,11 +1919,21 @@ def adastar_optimizer(
                 state.pps,
             )
         )
+
+        # Log large entries
+        def log_large(name, updates):
+            should_clip = vectorized_tree_map(
+                lambda x: WeightedScalar(mean=jnp.sum((x > 1) | (x < -1)), weight=x.size), updates
+            )
+            summarize_tree(name, should_clip, kinds=["cmax", "cmean"])
+
+        log_large("bad-pre", raw_updates)
         # Clip raw updates if necessary.
         clip_fn = clip_by_block_rms(
             raw_update_clipping_threshold, summary_suffix="raw_update_norm"
         ).update
         raw_updates, _ = clip_fn(raw_updates, None, params)
+        log_large("bad-mid", raw_updates)
         # Clip entrywise to [-1,1].
         raw_updates = jax.tree_util.tree_map(lambda x: jnp.clip(x, -1, 1), raw_updates)
         # Compute smoothed updates.
@@ -1937,6 +1975,7 @@ def adastar_optimizer(
                 ),
                 summary_suffix="corr_param_smoothed_updates",
             )
+        log_large("bad-post", smoothed_updates)
         # Clip entrywise to [-1,1].
         smoothed_updates = jax.tree_util.tree_map(lambda x: jnp.clip(x, -1, 1), smoothed_updates)
         return smoothed_updates, _AdastarState(count=incremented_count, pps=pps_tree)
