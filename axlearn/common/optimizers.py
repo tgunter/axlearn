@@ -1701,7 +1701,7 @@ def summarize_tree(name: str, tree: Nested[WeightedScalar], *, kinds: Sequence[s
         cmean=lambda: current_context().add_summary(
             name + "-cmean",
             jax.tree_util.tree_map(
-                lambda x: (x.mean * x.weight).sum() / x.weight,
+                lambda x: jnp.sum(x.mean * x.weight) / jnp.sum(x.weight),
                 tree,
                 is_leaf=lambda x: isinstance(x, WeightedScalar),
             ),
