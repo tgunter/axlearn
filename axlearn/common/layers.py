@@ -329,8 +329,8 @@ class RMSNorm(BaseNormalizationLayer):
         if cfg.forward_dtype is not None:
             x = x.astype(cfg.forward_dtype)
         moment2 = (x * x).mean(axis=-1, keepdims=True)
-        self.add_summary("input_rms-mean", moment2.mean())
-        self.add_summary("input_rms-min", moment2.min())
+        # self.add_summary("input_rms-mean", moment2.mean())
+        # self.add_summary("input_rms-min", moment2.min())
         x = x * jax.lax.rsqrt(moment2 + cfg.eps)
         x = x.astype(x_dtype)
         if cfg.clip:
