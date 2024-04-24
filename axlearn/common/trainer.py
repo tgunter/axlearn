@@ -434,9 +434,9 @@ class SpmdTrainer(Module):
                     self.vlog(3, "Start step %s", self.step)
                     output = self._run_step(
                         utils.host_to_global_device_array(input_batch),
-                        force_run_evals=force_run_eval_sets_at_max_step
-                        if self.step >= cfg.max_step
-                        else None,
+                        force_run_evals=(
+                            force_run_eval_sets_at_max_step if self.step >= cfg.max_step else None
+                        ),
                     )
                     self.vlog(3, "Done step %s", self.step)
                     num_steps += 1
@@ -713,7 +713,11 @@ class SpmdTrainer(Module):
                 self._trainer_state = TrainerState(
                     **{k: v for k, v in ckpt_state.items() if k in TrainerState._fields}
                 )
-                if cfg.save_input_iterator and "input_iter" in ckpt_state:
+                if (
+                    cfg.save_input_iterator
+                    and "input_iter" in ckpt_state
+                    and jax.process_index() < 256
+                ):
                     self._input_iter = ckpt_state["input_iter"]
             return step
 
