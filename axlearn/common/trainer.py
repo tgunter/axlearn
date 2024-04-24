@@ -163,6 +163,7 @@ class SpmdTrainer(Module):
         cfg = self.config
 
         self._step: int = None
+        self._iters_to_skip: int = 0
         self._trainer_state: TrainerState = None
         self._jit_train_step: jax.stages.Wrapped = None
         self._watchdog_stopping = None
@@ -426,6 +427,15 @@ class SpmdTrainer(Module):
                     logging.log_first_n(
                         logging.INFO, "input_batch=%s", 3, utils.shapes(input_batch)
                     )
+                    if self._iters_to_skip > 0:
+                        self._iters_to_skip += -1
+                        logging.log_every_n(
+                            logging.INFO,
+                            "Skipping iter. Iters remaining to skip %s",
+                            1000,
+                            self._iters_to_skip,
+                        )
+                        continue
 
                     # Stop or start tracing if necessary.
                     stop_trace_step = self._maybe_stop_or_start_tracing(stop_trace_step, output)
@@ -662,7 +672,7 @@ class SpmdTrainer(Module):
         Returns:
             The restored step or None (if restore_step is None and no checkpoint is found).
         """
-        cfg: SpmdTrainer.Config = self.config
+        # cfg: SpmdTrainer.Config = self.config
         # Try to restore the checkpoint at `restore_step`.
         with self.mesh():
             for path, spec in utils.flatten_items(self._trainer_state_specs):
@@ -671,7 +681,7 @@ class SpmdTrainer(Module):
             ckpt_state_spec_with_input_iter = dict(
                 **ckpt_state_spec, input_iter=iter(self.input.dataset())
             )
-            restore_input_iter = cfg.save_input_iterator
+            restore_input_iter = False  # cfg.save_input_iterator
             try:
                 # Try to restore with `input_iter`.
                 step, ckpt_state = self.checkpointer.restore(
@@ -710,14 +720,11 @@ class SpmdTrainer(Module):
                     )
             if step is not None:
                 self._step = step
+                self._iters_to_skip = step
                 self._trainer_state = TrainerState(
                     **{k: v for k, v in ckpt_state.items() if k in TrainerState._fields}
                 )
-                if (
-                    cfg.save_input_iterator
-                    and "input_iter" in ckpt_state
-                    and jax.process_index() < 256
-                ):
+                if restore_input_iter and "input_iter" in ckpt_state:
                     self._input_iter = ckpt_state["input_iter"]
             return step
 
