@@ -673,9 +673,6 @@ def _pad_logical_to_physical(
     assert global_logical_batch_size % num_logical_feeds == 0
     feed_logical_batch_size = global_logical_batch_size // num_logical_feeds
 
-    if feed_physical_batch_size == feed_logical_batch_size:
-        return dataset.batch(feed_logical_batch_size)
-
     # Impute size of pad dataset.
     num_examples = _infer_cardinality(dataset)
     if num_examples == tf.data.INFINITE_CARDINALITY:
@@ -724,6 +721,9 @@ def _pad_logical_to_physical(
 
     # If no padding, return dataset.
     if num_pad_examples == 0:
+        return dataset
+
+    if feed_physical_batch_size == feed_logical_batch_size:
         return dataset
 
     # Interleave the logical examples with padding.
