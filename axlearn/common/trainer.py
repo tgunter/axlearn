@@ -672,7 +672,7 @@ class SpmdTrainer(Module):
         Returns:
             The restored step or None (if restore_step is None and no checkpoint is found).
         """
-        # cfg: SpmdTrainer.Config = self.config
+        cfg: SpmdTrainer.Config = self.config
         # Try to restore the checkpoint at `restore_step`.
         with self.mesh():
             for path, spec in utils.flatten_items(self._trainer_state_specs):
@@ -681,7 +681,7 @@ class SpmdTrainer(Module):
             ckpt_state_spec_with_input_iter = dict(
                 **ckpt_state_spec, input_iter=iter(self.input.dataset())
             )
-            restore_input_iter = False  # cfg.save_input_iterator
+            restore_input_iter = cfg.save_input_iterator
             try:
                 # Try to restore with `input_iter`.
                 step, ckpt_state = self.checkpointer.restore(
@@ -720,7 +720,7 @@ class SpmdTrainer(Module):
                     )
             if step is not None:
                 self._step = step
-                self._iters_to_skip = step
+                self._iters_to_skip = 0
                 self._trainer_state = TrainerState(
                     **{k: v for k, v in ckpt_state.items() if k in TrainerState._fields}
                 )
