@@ -1935,7 +1935,7 @@ def adastar_optimizer(
         raw_updates, _ = clip_fn(raw_updates, None, params)
         log_large("bad-mid", raw_updates)
         # Clip entrywise to [-1,1].
-        # raw_updates = jax.tree_util.tree_map(lambda x: jnp.clip(x, -1, 1), raw_updates)
+        raw_updates = jax.tree_util.tree_map(lambda x: jnp.clip(x, -2, 2), raw_updates)
         # Compute smoothed updates.
         smoothed_updates, pps_tree = _split_update_results(
             vectorized_tree_map(
@@ -1977,7 +1977,7 @@ def adastar_optimizer(
             )
         log_large("bad-post", smoothed_updates)
         # Clip entrywise to [-1,1].
-        # smoothed_updates = jax.tree_util.tree_map(lambda x: jnp.clip(x, -1, 1), smoothed_updates)
+        smoothed_updates = jax.tree_util.tree_map(lambda x: jnp.clip(x, -2, 2), smoothed_updates)
         return smoothed_updates, _AdastarState(count=incremented_count, pps=pps_tree)
 
     def partition_fn(param_specs):
