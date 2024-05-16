@@ -32,6 +32,7 @@ if num_tpu_slices > 1:
         # concurrently with gradient computation for the following layer.
         "--xla_tpu_enable_data_parallel_all_reduce_opt=true",
         "--xla_tpu_data_parallel_opt_different_sized_ops=true",
+        "--xla_tpu_enable_sunk_dcn_allreduce_done_with_host_reduction=true",
     ]
 
 os.environ["LIBTPU_INIT_ARGS"] = " ".join(libtpu_init_args)
