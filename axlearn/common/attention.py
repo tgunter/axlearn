@@ -1447,6 +1447,11 @@ class MultiheadAttention(BaseLayer):
         key_scale: BaseScaleQK.Config = ScaleKey.default_config()
         # Cap the absolute values of logits by tanh. Enabled by setting a positive value.
         atten_logit_cap: Optional[float] = None
+        # Adds summary of the specified values. Supported value are:
+        # - "entropy": attention entropy.
+        # - "context": output rms of the context projection.
+        # - "o_proj_outputs": output rms of the o-projection.
+        add_value_summary: Optional[Sequence[str]] = None
 
     def __init__(self, cfg: Config, *, parent: Module):
         super().__init__(cfg, parent=parent)
@@ -1525,6 +1530,8 @@ class MultiheadAttention(BaseLayer):
             ValueError: If key & value are an invalid combination.
             ValueError: If `mode` is unsupported.
         """
+        cfg = self.config
+        summary_list = cfg.add_value_summary
         # Validate key & value combination.
         if (key is None) != (value is None):
             raise ValueError(
@@ -1563,12 +1570,24 @@ class MultiheadAttention(BaseLayer):
         )
         self.vlog(3, "atten.prob=%s", probs[0, 0, 0, :])
         self.vlog(3, "atten.context=%s", context.sum())
+        if summary_list is not None and "context" in summary_list:
+            self._report_rms_norm(context, "context")
 
         # [batch, target_length, output_dim].
         o_proj = self.o_proj(context)
         outputs = self._remat_name(o_proj, "o_proj")
+        if summary_list is not None and "o_proj_outputs" in summary_list:
+            self._report_rms_norm(outputs, "o_proj_outputs")
+            self.add_summary(
+                "max_abs/o_proj_outputs",
+                jnp.max(jnp.abs(outputs)),
+            )
         self._add_tensor_stats("o_proj_outputs", outputs)
         return dict(i_proj=i_proj_state), self.Output(data=outputs, probs=probs)
+
+    def _report_rms_norm(self, x: Tensor, tensor_name: str):
+        rms_norm = (x**2.0).mean().astype(jnp.float32) ** 0.5
+        self.add_summary(f"rms_norm/{tensor_name}", rms_norm)
 
     def _compute_attention(
         self,
@@ -2435,9 +2454,13 @@ class TransformerFeedForwardLayer(BaseLayer):
             """Applies linear2, optionally logging RMS norm of the output."""
             x = self.linear2(x)
             self._add_tensor_stats("linear2_outputs", x)
+            self._report_stats(inputs, x, "linear2_outputs")
             return x
 
         self._add_tensor_stats("inputs", inputs)
+
+        if "inputs" in cfg.add_value_rms_norm_summary:
+            self._report_rms_norm(inputs, "inputs")
 
         remat_pt1 = "activation"
         remat_pt2 = "linear2"
@@ -2503,6 +2526,9 @@ class TransformerFeedForwardLayer(BaseLayer):
                 for i, activation in enumerate(cfg.activation)
             ]
             assert len(activations) == 2, cfg.activation
+            if "linear1_outputs" in cfg.add_value_rms_norm_summary:
+                self._report_rms_norm(activations[0], "linear1_0_outputs")
+                self._report_rms_norm(activations[1], "linear1_1_outputs")
             outputs = activations[0] * activations[1]
             self._add_tensor_stats("linear1_0_outputs", activations[0])
             self._add_tensor_stats("linear1_1_outputs", activations[1])
@@ -2512,7 +2538,26 @@ class TransformerFeedForwardLayer(BaseLayer):
             x = self.linear1(x)
             x = self._get_activation(x, activation_fn_name=cfg.activation)
             self._add_tensor_stats("linear1_outputs", x)
+            if "linear1_outputs" in cfg.add_value_rms_norm_summary:
+                self._report_rms_norm(x, "linear1_outputs")
             return x
+
+    def _report_rms_norm(self, x: Tensor, tensor_name: str):
+        x = x.astype(jnp.float32)
+        rms_norm = (x**2.0).mean() ** 0.5
+        max_abs = jnp.max(jnp.abs(x))
+        self.add_summary(f"rms_norm/{tensor_name}", rms_norm)
+        self.add_summary(f"max_abs/{tensor_name}", max_abs)
+
+    def _report_stats(self, inputs: Tensor, x: Tensor, tensor_name: str):
+        x = x.astype(jnp.float32)
+        inputs = inputs.astype(jnp.float32)
+        x_rms = (x**2.0).mean() ** 0.5
+        input_rms = (inputs**2.0).mean() ** 0.5
+        corr = (x * inputs).mean() / (x_rms + 1e-8) / (input_rms + 1e-8)
+        self.add_summary(f"rms_norm/{tensor_name}", x_rms)
+        self.add_summary(f"in_out_correlation/{tensor_name}", corr)
+        self.add_summary(f"max_abs/{tensor_name}", jnp.max(jnp.abs(x)))
 
     def _get_activation(self, x: Tensor, activation_fn_name: str) -> Tensor:
         """Applies activation function on 'x' and optionally counts the number of dead neurons.
@@ -3031,9 +3076,9 @@ class StackedTransformerLayer(BaseStackedTransformerLayer):
 
         # If `layer` is a Config, it will be stacked cfg.num_layers times. If `layer` is a
         # sequence of Configs, the sequence length should match cfg.num_layers.
-        layer: Union[
-            BaseTransformerLayer.Config, Sequence[BaseTransformerLayer.Config]
-        ] = TransformerLayer.default_config()
+        layer: Union[BaseTransformerLayer.Config, Sequence[BaseTransformerLayer.Config]] = (
+            TransformerLayer.default_config()
+        )
 
     def __init__(self, cfg: Config, *, parent: Optional[Module]):
         super().__init__(cfg, parent=parent)
