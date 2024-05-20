@@ -1832,8 +1832,8 @@ class GroupedQueryAttention(MultiheadAttention):
         )
         attention_logit_biases = jnp.concatenate(
             (
-                attention_logit_biases,
                 attn_padd,
+                attention_logit_biases,
             ),
             axis=-1,
         )
