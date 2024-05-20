@@ -1452,6 +1452,7 @@ class MultiheadAttention(BaseLayer):
         # - "context": output rms of the context projection.
         # - "o_proj_outputs": output rms of the o-projection.
         add_value_summary: Optional[Sequence[str]] = None
+        num_extra_kvs: Optional[int] = 32
 
     def __init__(self, cfg: Config, *, parent: Module):
         super().__init__(cfg, parent=parent)
@@ -1792,6 +1793,24 @@ class GroupedQueryAttention(MultiheadAttention):
         # Repeat along the num_heads dim: [batch, source_length, num_heads, per_head_dim].
         return jnp.repeat(key_or_value, num_head_repeats, axis=2)
 
+    def _create_layer_parameter_specs(self) -> Dict[str, ParameterSpec]:
+        cfg = self.config
+        params = dict(
+            k_bias=ParameterSpec(
+                shape=(1, cfg.num_extra_kvs, self.num_kv_heads, self.per_head_dim()),
+                # A mapping from parameter axes to logical mesh axes (or None if replicating along
+                # an axis).
+                mesh_axes=(None, None, "model", None),
+            ),
+            v_bias=ParameterSpec(
+                shape=(1, cfg.num_extra_kvs, self.num_kv_heads, self.per_head_dim()),
+                # A mapping from parameter axes to logical mesh axes (or None if replicating along
+                # an axis).
+                mesh_axes=(None, None, "model", None),
+            ),
+        )
+        return params
+
     def _compute_attention(
         self,
         *,
@@ -1801,8 +1820,23 @@ class GroupedQueryAttention(MultiheadAttention):
         attention_logit_biases: Optional[Tensor] = None,
     ) -> Tuple[Tensor, Tensor]:
         """See `MultiheadAttention._compute_attention` for details."""
+        k_bias = jnp.tile(self.parameters["k_bias"], (k_proj.shape[0], 1, 1, 1))
+        v_bias = jnp.tile(self.parameters["v_bias"], (v_proj.shape[0], 1, 1, 1))
+        k_proj = jnp.concatenate((k_bias, k_proj), axis=1)
         k_proj = self._repeat_kv_heads(k_proj)
+        v_proj = jnp.concatenate((v_bias, v_proj), axis=1)
         v_proj = self._repeat_kv_heads(v_proj)
+        attn_padd = jnp.zeros_like(
+            attention_logit_biases,
+            shape=(*attention_logit_biases.shape[:-1], self.config.num_extra_kvs),
+        )
+        attention_logit_biases = jnp.concatenate(
+            (
+                attention_logit_biases,
+                attn_padd,
+            ),
+            axis=-1,
+        )
         return super()._compute_attention(
             q_proj=q_proj,
             k_proj=k_proj,
@@ -3076,9 +3110,9 @@ class StackedTransformerLayer(BaseStackedTransformerLayer):
 
         # If `layer` is a Config, it will be stacked cfg.num_layers times. If `layer` is a
         # sequence of Configs, the sequence length should match cfg.num_layers.
-        layer: Union[BaseTransformerLayer.Config, Sequence[BaseTransformerLayer.Config]] = (
-            TransformerLayer.default_config()
-        )
+        layer: Union[
+            BaseTransformerLayer.Config, Sequence[BaseTransformerLayer.Config]
+        ] = TransformerLayer.default_config()
 
     def __init__(self, cfg: Config, *, parent: Optional[Module]):
         super().__init__(cfg, parent=parent)
