@@ -1611,6 +1611,10 @@ class MultiheadAttention(BaseLayer):
             and probs of shape [batch, num_heads, target_length, source_length].
         """
         logits = self._compute_logits(q_proj, k_proj)
+        self.add_summary(
+            "max_abs/attn_logits",
+            jnp.max(jnp.abs(logits)),
+        )
         logits = self._cap_logits(logits)
         self.vlog(3, "atten.logits=%s", logits[0, 0, 0, :])
         probs = softmax_with_biases(logits, attention_logit_biases=attention_logit_biases)
@@ -3110,9 +3114,9 @@ class StackedTransformerLayer(BaseStackedTransformerLayer):
 
         # If `layer` is a Config, it will be stacked cfg.num_layers times. If `layer` is a
         # sequence of Configs, the sequence length should match cfg.num_layers.
-        layer: Union[
-            BaseTransformerLayer.Config, Sequence[BaseTransformerLayer.Config]
-        ] = TransformerLayer.default_config()
+        layer: Union[BaseTransformerLayer.Config, Sequence[BaseTransformerLayer.Config]] = (
+            TransformerLayer.default_config()
+        )
 
     def __init__(self, cfg: Config, *, parent: Optional[Module]):
         super().__init__(cfg, parent=parent)
