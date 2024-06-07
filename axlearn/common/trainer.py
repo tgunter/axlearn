@@ -657,21 +657,6 @@ class SpmdTrainer(Module):
             return False
 
         self._jit_train_step = self._pjit_train_step()
-        lowered_train_step = self._jit_train_step.lower()
-        logging.info("Compiling train step.")
-        self._compiled_train_step = lowered_train_step.compile()
-        sample_device = jax.devices().pop()
-        if sample_device.platform == "tpu":
-            compiler_options = {
-                "xla_tpu_enable_sdc_checker": True,
-                "xla_tpu_sdc_check_repeat_count": cfg.xsc_for_n_repeats,
-            }
-            if "v5e" in sample_device.device_kind or "v5lite" in sample_device.device_kind:
-                compiler_options["xla_tpu_sdc_replicate_llo"] = True
-            logging.info("Compiling XSC train step.")
-            self._xsc_compiled_train_step = lowered_train_step.compile(
-                compiler_options=compiler_options
-            )
         return True
 
     def restore_checkpoint(self, restore_step: Optional[int] = None) -> Optional[int]:
@@ -792,11 +777,39 @@ class SpmdTrainer(Module):
             A dict containing 'loss' and 'aux' outputs. If force_run_evals is a set,
             force run the evalers in the set and return 'evaler_summaries' output.
         """
+        if self._compiled_train_step is None:
+            # trainer_state_specs = jax.tree_util.tree_map(
+            #     lambda spec: jax.ShapeDtypeStruct(shape=spec.shape, dtype=spec.dtype),
+            #     self.trainer_state_specs,
+            # )
+            # input_batch_specs = jax.tree_util.tree_map(
+            #     lambda tf_spec: jax.ShapeDtypeStruct(
+            #         shape=tf_spec.shape, dtype=tf_spec.dtype.as_numpy_dtype
+            #     ),
+            #     input_batch,
+            # )
+            jit_train_step = self._pjit_train_step()
+            lowered_train_step = jit_train_step.lower(self._trainer_state, input_batch)
+            logging.info("Compiling train step.")
+            self._compiled_train_step = lowered_train_step.compile()
+            sample_device = jax.devices().pop()
+            if sample_device.platform == "tpu":
+                compiler_options = {
+                    "xla_tpu_enable_sdc_checker": True,
+                    "xla_tpu_sdc_check_repeat_count": self.config.xsc_for_n_repeats,
+                }
+                if "v5 lite" in sample_device.device_kind:
+                    compiler_options["xla_tpu_sdc_replicate_llo"] = True
+                logging.info("Compiling XSC train step.")
+                self._xsc_compiled_train_step = lowered_train_step.compile(
+                    compiler_options=compiler_options
+                )
+
         with jax.profiler.StepTraceAnnotation("train", step_num=self.step):
             # Note(Jan 2022):
             # pjit currently requires all parameters to be specified as positional args.
             train_step_fn = self._compiled_train_step
-            if self.step % self.config.xsc_every_n_steps:
+            if self._xsc_compiled_train_step and (self.step % self.config.xsc_every_n_steps) == 0:
                 train_step_fn = self._xsc_compiled_train_step
             self._trainer_state, outputs = train_step_fn(self._trainer_state, input_batch)
 
@@ -866,7 +879,7 @@ class SpmdTrainer(Module):
             donate_argnums=(0,),  # donate the state
         )
 
-    def compile_train_step(self) -> jax.stages.Compiled:
+    def compile_train_step(self, compiler_options: Dict[str, Any] = None) -> jax.stages.Compiled:
         with self.mesh():
             # Do not run init(), which require real devices.
             trainer_state_specs = jax.tree_util.tree_map(
@@ -881,7 +894,7 @@ class SpmdTrainer(Module):
             )
             jit_train_step = self._pjit_train_step()
             lowered_train_step = jit_train_step.lower(trainer_state_specs, input_batch_specs)
-            return lowered_train_step.compile()
+            return lowered_train_step.compile(compiler_options=compiler_options)
 
     def _train_step(
         self,
