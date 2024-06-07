@@ -1,7 +1,6 @@
 # Copyright © 2023 Apple Inc.
 
 """Defines SpmdTrainer, a trainer that supports partitioning of computation and data with GSPMD."""
-
 import contextlib
 import itertools
 import math
@@ -17,17 +16,11 @@ from jax import numpy as jnp
 from jax.experimental import multihost_utils
 from jax.experimental.pjit import pjit
 
-from axlearn.common import measurement, utils
+from axlearn.common import utils
 from axlearn.common.base_layer import ParameterSpec
 from axlearn.common.base_model import BaseModel
 from axlearn.common.checkpointer import Checkpointer
-from axlearn.common.config import (
-    REQUIRED,
-    InstantiableConfig,
-    Required,
-    config_class,
-    maybe_instantiate,
-)
+from axlearn.common.config import REQUIRED, InstantiableConfig, Required, config_class
 from axlearn.common.evaler import SpmdEvaler
 from axlearn.common.learner import ForwardOutputs, Learner, NestedOptParam
 from axlearn.common.module import InvocationContext, Module, child_context, clone_context_stack
@@ -147,8 +140,12 @@ class SpmdTrainer(Module):
         # increment within this interval.
         watchdog_timeout_seconds: Optional[float] = None
 
-        # An optional recorder for measuring common metrics like step time.
-        recorder: Optional[InstantiableConfig[measurement.Recorder]] = None
+        # Run SDC check this many steps, if possible for hardware backend in use.
+        xsc_every_n_steps: Optional[int] = None
+
+        # Run SDC check for this many repeats each time it is executed, if possible
+        # for hardware backend in use.
+        xsc_for_n_repeats: int = 1
 
     def __init__(
         self,
@@ -169,9 +166,10 @@ class SpmdTrainer(Module):
         self._step: int = None
         self._trainer_state: TrainerState = None
         self._jit_train_step: jax.stages.Wrapped = None
+        self._compiled_train_step: jax.stages.Compiled = None
+        self._xsc_compiled_train_step: jax.stages.Compiled = None
         self._watchdog_stopping = None
         self._watchdog_thread = None
-        self._recorder = maybe_instantiate(cfg.recorder)
 
         if cfg.model.dtype is None:
             raise ValueError(f"dtype must be explicitly specified for {self.path()}.model")
@@ -378,10 +376,6 @@ class SpmdTrainer(Module):
             )
         return force_run_evals
 
-    def _maybe_record_event(self, event: measurement.Event, *args, **kwargs):
-        if self._recorder is not None:
-            self._recorder.record(event, *args, **kwargs)
-
     # pylint: disable-next=too-many-statements,too-many-branches
     def run(
         self, prng_key: Tensor, *, return_evaler_summaries: Optional[Union[bool, Set[str]]] = None
@@ -394,7 +388,7 @@ class SpmdTrainer(Module):
                 last training step. If None or False, do not force run evalers and no evaler
                 summaries are returned; if True, force run all evalers at the last training step
                 and return summaries; if given as a set of strings, force run all the evalers
-                with the name in the set at the last training step and return summaries.
+                with the name in the set at teh last training step and return summaries.
 
         Returns:
             None if no training is run or a dict otherwise.
@@ -426,7 +420,6 @@ class SpmdTrainer(Module):
                 stop_trace_step = None
 
                 for input_batch in self._input_iter:
-                    self._maybe_record_event(measurement.Event.START_STEP, self._step)
                     logging.log_first_n(
                         logging.INFO, "input_batch=%s", 3, utils.shapes(input_batch)
                     )
@@ -438,9 +431,9 @@ class SpmdTrainer(Module):
                     self.vlog(3, "Start step %s", self.step)
                     output = self._run_step(
                         utils.host_to_global_device_array(input_batch),
-                        force_run_evals=force_run_eval_sets_at_max_step
-                        if self.step >= cfg.max_step
-                        else None,
+                        force_run_evals=(
+                            force_run_eval_sets_at_max_step if self.step >= cfg.max_step else None
+                        ),
                     )
                     self.vlog(3, "Done step %s", self.step)
                     num_steps += 1
@@ -664,6 +657,21 @@ class SpmdTrainer(Module):
             return False
 
         self._jit_train_step = self._pjit_train_step()
+        lowered_train_step = self._jit_train_step.lowered()
+        logging.info("Compiling train step.")
+        self._compiled_train_step = lowered_train_step.compile()
+        sample_device = jax.devices().pop()
+        if sample_device.platform == "tpu":
+            compiler_options = {
+                "xla_tpu_enable_sdc_checker": True,
+                "xla_tpu_sdc_check_repeat_count": cfg.xsc_for_n_repeats,
+            }
+            if "v5e" in sample_device.device_kind or "v5lite" in sample_device.device_kind:
+                compiler_options["xla_tpu_sdc_replicate_llo"] = True
+            logging.info("Compiling XSC train step.")
+            self._xsc_compiled_train_step = lowered_train_step.compile(
+                compiler_options=compiler_options
+            )
         return True
 
     def restore_checkpoint(self, restore_step: Optional[int] = None) -> Optional[int]:
@@ -787,7 +795,10 @@ class SpmdTrainer(Module):
         with jax.profiler.StepTraceAnnotation("train", step_num=self.step):
             # Note(Jan 2022):
             # pjit currently requires all parameters to be specified as positional args.
-            self._trainer_state, outputs = self._jit_train_step(self._trainer_state, input_batch)
+            train_step_fn = self._compiled_train_step
+            if self.step % self.config.xsc_every_n_steps:
+                train_step_fn = self._xsc_compiled_train_step
+            self._trainer_state, outputs = train_step_fn(self._trainer_state, input_batch)
 
         if self.step % 100 == 0 or 0 <= self.step <= 5:
             self._step_log(
