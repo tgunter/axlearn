@@ -657,7 +657,7 @@ class SpmdTrainer(Module):
             return False
 
         self._jit_train_step = self._pjit_train_step()
-        lowered_train_step = self._jit_train_step.lowered()
+        lowered_train_step = self._jit_train_step.lower()
         logging.info("Compiling train step.")
         self._compiled_train_step = lowered_train_step.compile()
         sample_device = jax.devices().pop()
