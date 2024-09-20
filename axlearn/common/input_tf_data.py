@@ -428,8 +428,16 @@ def sample_from_datasets(
         if any(source_ds.cardinality() == 0 for source_ds in source_ds_list):
             raise ValueError("Expected all cardinalities to be non-zero")
 
+        dss = []
+        for el in source_ds_list:
+            options = tf.data.Options()
+            options.autotune.enabled = True
+            options.autotune.ram_budget = 4 * 1024 * 1024 * 1024
+            options.experimental_warm_start = True
+            dss.append(el.with_options(options))
+
         return tf.data.Dataset.sample_from_datasets(
-            source_ds_list,
+            dss,
             weights=weights,
             seed=seed,
             stop_on_empty_dataset=True,
