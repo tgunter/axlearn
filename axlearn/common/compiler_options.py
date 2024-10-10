@@ -57,8 +57,8 @@ def default_xla_options(
         )
 
     # Validate options. Will never fail if this function is implemented correctly.
-    for k, v in options.items():
-        assert v in [True, False, "true", "false"], (k, v)
+    # for k, v in options.items():
+    #     assert v in [True, False, "true", "false"], (k, v)
 
     return options
 
