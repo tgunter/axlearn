@@ -13,6 +13,8 @@ libtpu_init_args = [
     "--xla_tpu_spmd_rng_bit_generator_unsafe=1",  # SPMD partition-aware RngBitGenerator.
     "--xla_tpu_enable_latency_hiding_scheduler=true",  # Try to schedule ops efficiently.
     "--xla_tpu_perform_spmd_cse_prevention=false",  # b/229655601: prevent OOM on gpt2-small-repeat.
+    "--megascale_crash_on_stale_unmatched_keys=True",
+    "--megascale_callback_registry_stale_threshold=5m",
 ]
 if instance_type.startswith("v4-"):
     libtpu_init_args += [
