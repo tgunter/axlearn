@@ -61,15 +61,13 @@ from axlearn.common.utils import (
 class BuildDatasetFn(Protocol):
     """A function to create a tf.data.Dataset instance."""
 
-    def __call__(self) -> tf.data.Dataset:
-        ...
+    def __call__(self) -> tf.data.Dataset: ...
 
 
 class DatasetToDatasetFn(Protocol):
     """A function to create a tf.data.Dataset instance from the given dataset."""
 
-    def __call__(self, ds: Optional[tf.data.Dataset], **kwargs) -> tf.data.Dataset:
-        ...
+    def __call__(self, ds: Optional[tf.data.Dataset], **kwargs) -> tf.data.Dataset: ...
 
 
 def tfds_read_config(
@@ -428,8 +426,16 @@ def sample_from_datasets(
         if any(source_ds.cardinality() == 0 for source_ds in source_ds_list):
             raise ValueError("Expected all cardinalities to be non-zero")
 
+        dss = []
+        for el in source_ds_list:
+            options = tf.data.Options()
+            options.autotune.enabled = True
+            options.autotune.ram_budget = 6 * 1024 * 1024 * 1024
+            options.experimental_warm_start = True
+            dss.append(el.with_options(options))
+
         return tf.data.Dataset.sample_from_datasets(
-            source_ds_list,
+            dss,
             weights=weights,
             seed=seed,
             stop_on_empty_dataset=True,
